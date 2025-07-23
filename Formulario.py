@@ -934,9 +934,8 @@ class BuscadorCadena:
         elif tipo_widget == "combobox":
             widget.delete(0, "end")
             widget.insert(0, texto_sugerido)
-            # Selecciona exactamente la subcadena coincidente, igual que en textbox
-            widget.selection_range(idx, final_pos)
             widget.icursor(final_pos)
+            # No seleccionar la subcadena, solo posicionar el cursor
         elif tipo_widget == "listbox":
             # Limpiar la lista y mostrar solo las coincidencias
             widget.delete(0, "end")
