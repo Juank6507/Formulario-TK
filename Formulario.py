@@ -1017,6 +1017,36 @@ class BuscadorCadena:
         """
         self.buffers[widget] = valor
 
+    def debug_evento_buscador(self, widget, event, tipo_widget="text"):
+        """
+        Método de debug para controlar eventos de búsqueda en cualquier tipo de widget.
+        Útil para diagnosticar problemas en Textbox, Combobox, Listbox, etc.
+
+        Args:
+            widget: El widget de Tkinter que recibe el evento.
+            event: El evento de teclado de Tkinter.
+            tipo_widget (str): El tipo de widget ("text", "combobox", "entry", "listbox").
+        """
+        # Obtener el texto actual según el tipo de widget
+        if tipo_widget == "text":
+            texto = widget.get("1.0", "end-1c").strip()
+        else:  # entry, combobox, listbox
+            texto = widget.get().strip()
+        
+        print(f"[DEBUG][BuscadorCadena] KeyRelease: '{event.keysym}' | Widget: {tipo_widget} | Texto actual: '{texto}'")
+        
+        # Realizar búsqueda y mostrar resultados
+        resultados = self.busca_cadena(texto)
+        print(f"[DEBUG][BuscadorCadena] Resultados busca_cadena('{texto}'): {resultados}")
+        
+        # Mostrar información adicional del buffer
+        buffer_actual = self.buffers.get(widget, "")
+        print(f"[DEBUG][BuscadorCadena] Buffer actual para widget: '{buffer_actual}'")
+        
+        # Mostrar texto sugerido si existe
+        if hasattr(self, 'texto_sugerido') and self.texto_sugerido:
+            print(f"[DEBUG][BuscadorCadena] Texto sugerido: '{self.texto_sugerido}'")
+
     # Métodos auxiliares para DataFrame (sin cambios)
     def _es_dataframe(self, obj):
         """
@@ -2559,14 +2589,7 @@ class Textbox(tk.Frame):
         valor = self.texto_ingresado if hasattr(self, "texto_ingresado") else ""
         return f"Textbox(titulo='{titulo}', tipo_validacion='{self.tipo_validacion}', valor='{valor}')"
 
-    def _debug_evento_buscador(self, event):
-        texto = self.textbox.get("1.0", "end-1c").strip()
-        print(f"[DEBUG][Textbox] KeyRelease: '{event.keysym}' | Texto actual: '{texto}'")
-        if hasattr(self, "buscador"):
-            resultados = self.buscador.busca_cadena(texto)
-            print(f"[DEBUG][Textbox] Resultados busca_cadena('{texto}'): {resultados}")
-        else:
-            print("[DEBUG][Textbox] No hay buscador asociado a este textbox.")
+
 
     def set(self, valor):
         self.textbox.delete("1.0", tk.END)
