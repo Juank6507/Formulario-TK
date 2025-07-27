@@ -3123,7 +3123,7 @@ class Listbox(tk.Frame):
     def _evento_keyrelease_busqueda(self, event):
         if hasattr(self, 'buscador'):
             texto_usuario = self.entry_busqueda.get()
-            self.buscador.autocompletar_en_widget(self.listbox, texto_usuario, tipo_widget="listbox")
+            self.buscador.autocompletar_en_widget(self.listbox, texto_usuario, tipo_widget="listbox", entry_busqueda=self.entry_busqueda)
     
     def get_selected(self):
         """Obtiene el valor seleccionado en el listbox."""
