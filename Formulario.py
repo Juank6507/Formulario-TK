@@ -916,7 +916,7 @@ class BuscadorCadena:
         self.coincidencias = resultados
         return resultados
 
-    def autocompletar_en_widget(self, widget, texto_usuario, tipo_widget="text"):
+    def autocompletar_en_widget(self, widget, texto_usuario, tipo_widget="text", entry_busqueda=None):
         """
         Realiza autocompletado visual en el widget (tk.Text, ttk.Combobox o tk.Listbox) usando la lógica de BuscadorCadena.
 
@@ -924,6 +924,7 @@ class BuscadorCadena:
             widget: El widget de Tkinter sobre el que se realiza el autocompletado.
             texto_usuario (str): El texto que el usuario ha escrito (buffer).
             tipo_widget (str): El tipo de widget ("text", "combobox" o "listbox").
+            entry_busqueda: (opcional) El Entry de búsqueda asociado al Listbox.
         """
         coincidencias = self.busca_cadena(texto_usuario)
         texto_sugerido = self.texto_sugerido if coincidencias and self.texto_sugerido else texto_usuario
@@ -943,6 +944,13 @@ class BuscadorCadena:
             widget.selection_range(idx, final_pos)
             widget.icursor(final_pos)
         elif tipo_widget == "listbox":
+            # Si se pasa entry_busqueda, autocompleta el Entry con la mejor coincidencia
+            if entry_busqueda is not None:
+                sugerencia = coincidencias[0][0] if coincidencias else texto_usuario
+                entry_busqueda.delete(0, "end")
+                entry_busqueda.insert(0, sugerencia)
+                entry_busqueda.selection_range(len(texto_usuario), "end")
+                entry_busqueda.icursor("end")
             widget.delete(0, "end")
             for valor, _ in coincidencias:
                 widget.insert("end", valor)
