@@ -822,7 +822,7 @@ class ConfiguracionDeslizante:
 class BuscadorCadena:
     """
     Clase utilitaria para búsqueda y autocompletado en fuentes de datos externas.
-    No gestiona eventos ni refresco visual, solo lógica de búsqueda.
+    Centraliza el manejo de buffer, eventos de teclado y autocompletado para cualquier widget.
     """
     def __init__(self, fuente_datos=None, modo_busqueda="inicio", sensible_mayusculas=False,
                  permite_agregar=False, df_columna_id=None, df_columna_valor=None):
@@ -834,6 +834,7 @@ class BuscadorCadena:
         self.df_columna_valor = df_columna_valor
         self.coincidencias = []
         self.texto_sugerido = None
+        self.buffers = {}  # buffer por widget
 
     def _normalizar_texto(self, texto):
         import unicodedata
@@ -918,6 +919,11 @@ class BuscadorCadena:
     def autocompletar_en_widget(self, widget, texto_usuario, tipo_widget="text"):
         """
         Realiza autocompletado visual en el widget (tk.Text, ttk.Combobox o tk.Listbox) usando la lógica de BuscadorCadena.
+
+        Args:
+            widget: El widget de Tkinter sobre el que se realiza el autocompletado.
+            texto_usuario (str): El texto que el usuario ha escrito (buffer).
+            tipo_widget (str): El tipo de widget ("text", "combobox" o "listbox").
         """
         coincidencias = self.busca_cadena(texto_usuario)
         texto_sugerido = self.texto_sugerido if coincidencias and self.texto_sugerido else texto_usuario
@@ -934,19 +940,95 @@ class BuscadorCadena:
         elif tipo_widget == "combobox":
             widget.delete(0, "end")
             widget.insert(0, texto_sugerido)
+            widget.selection_range(idx, final_pos)
             widget.icursor(final_pos)
-            # No seleccionar la subcadena, solo posicionar el cursor
         elif tipo_widget == "listbox":
-            # Limpiar la lista y mostrar solo las coincidencias
             widget.delete(0, "end")
             for valor, _ in coincidencias:
                 widget.insert("end", valor)
-            # Seleccionar el primer elemento si hay coincidencias
             if coincidencias:
                 widget.selection_set(0)
                 widget.activate(0)
 
+    def on_keypress(self, widget, event, tipo_widget="text"):
+        """
+        Maneja el evento de teclado para cualquier widget con búsqueda/autocompletado.
+        Actualiza el buffer del usuario y realiza el autocompletado según la tecla presionada.
+
+        Args:
+            widget: El widget de Tkinter que recibe el evento.
+            event: El evento de teclado de Tkinter.
+            tipo_widget (str): El tipo de widget ("text", "combobox" o "listbox").
+
+        Returns:
+            "break" si el evento debe ser detenido (para evitar el comportamiento por defecto de Tkinter).
+        """
+        buffer_usuario = self.buffers.get(widget, "")
+
+        if event.keysym == "BackSpace":
+            buffer_usuario = buffer_usuario[:-1]
+            self.buffers[widget] = buffer_usuario
+            self.autocompletar_en_widget(widget, buffer_usuario, tipo_widget)
+            return "break"
+
+        if event.char and event.char.isprintable():
+            buffer_usuario += event.char
+            self.buffers[widget] = buffer_usuario
+            self.autocompletar_en_widget(widget, buffer_usuario, tipo_widget)
+            return "break"
+
+        if event.keysym in ("Return", "Tab"):
+            texto_final = getattr(self, "texto_sugerido", None)
+            if not texto_final:
+                texto_final = buffer_usuario
+            if tipo_widget == "text":
+                widget.delete("1.0", "end")
+                widget.insert("1.0", texto_final)
+                widget.tag_remove("sel", "1.0", "end")
+                widget.mark_set("insert", f"1.{len(texto_final)}")
+            elif tipo_widget == "combobox":
+                widget.delete(0, "end")
+                widget.insert(0, texto_final)
+                widget.selection_clear()
+                widget.icursor(len(texto_final))
+            elif tipo_widget == "listbox":
+                # Para listbox, podrías seleccionar el primer elemento coincidente
+                widget.selection_clear(0, "end")
+                for i in range(widget.size()):
+                    if widget.get(i) == texto_final:
+                        widget.selection_set(i)
+                        widget.activate(i)
+                        break
+            self.buffers[widget] = texto_final
+            widget.tk_focusNext().focus_set()
+            return "break"
+
+        if event.keysym in ('Up', 'Down', 'Left', 'Right', 'Escape'):
+            return
+
+    def reset_buffer(self, widget, valor=""):
+        """
+        Permite resetear el buffer de un widget (por ejemplo, al hacer set() desde el control).
+        Es útil para mantener sincronizado el buffer interno con el valor real del widget.
+
+        Args:
+            widget: El widget de Tkinter cuyo buffer se va a resetear.
+            valor (str): El nuevo valor a establecer en el buffer.
+        """
+        self.buffers[widget] = valor
+
+    # Métodos auxiliares para DataFrame (sin cambios)
     def _es_dataframe(self, obj):
+        """
+        Determina si el objeto proporcionado es un DataFrame de pandas.
+
+        Args:
+            obj: Objeto a comprobar.
+
+        Returns:
+            bool: True si es un DataFrame, False en caso contrario.
+        """
+        
         try:
             import pandas as pd
             return isinstance(obj, pd.DataFrame)
@@ -954,6 +1036,15 @@ class BuscadorCadena:
             return False
 
     def _procesar_dataframe(self, df):
+        """
+        Procesa un DataFrame de pandas para extraer una lista de tuplas (id, valor) para la búsqueda.
+
+        Args:
+            df: DataFrame de pandas.
+
+        Returns:
+            list: Lista de tuplas (id, valor) extraídas del DataFrame.
+        """
         try:
             if self.df_columna_id:
                 id_col = self.df_columna_id
@@ -1087,7 +1178,7 @@ class Textbox(tk.Frame):
                 df_columna_id=getattr(config, "df_columna_id", None),
                 df_columna_valor=getattr(config, "df_columna_valor", None)
             )
-            self.textbox.bind("<KeyRelease>", self._evento_keypress_usuario)
+            self.textbox.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.textbox, e, "text"))
         else:
             # Usar eventos tradicionales para otros tipos de validación
             self.textbox.bind("<KeyPress>", self._evento_actualizar_contenido)
@@ -2828,6 +2919,7 @@ class Combobox(tk.Frame):
         self.ancho = config.ancho
         self.valores = config.valores
         self.estado = config.estado
+        self.buffer_usuario = ""
         
         # Widgets
         self.label = ttk.Label(self, text=config.titulo_control)
@@ -2864,7 +2956,7 @@ class Combobox(tk.Frame):
             )
             
         if hasattr(self, 'buscador'):
-            self.combobox.bind("<KeyRelease>", self._evento_keyrelease_usuario)
+            self.combobox.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.combobox, e, "combobox"))
     
     def _actualizar_valores(self, valores):
         """Actualiza los valores del combobox."""
@@ -2908,6 +3000,7 @@ class Combobox(tk.Frame):
     def set(self, valor):
         """Establece el valor del combobox."""
         self.combobox.set(valor)
+        self.buscador.reset_buffer(self.combobox, valor)  # <-- Esto sincroniza el buffer
     
     def busca_cadena(self, texto, modo_busqueda=None, sensible_mayusculas=None, max_resultados=None):
         """Delega la búsqueda al BuscadorCadena si existe."""
@@ -2984,7 +3077,8 @@ class Listbox(tk.Frame):
                 sensible_mayusculas=config.sensible_mayusculas,
                 df_columna_id=getattr(config, "df_columna_id", None),
                 df_columna_valor=getattr(config, "df_columna_valor", None)
-            )
+            )            
+            self.entry_busqueda.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.entry_busqueda, e, "listbox"))
     
     def _actualizar_valores_desde_fuente(self, fuente_datos):
         """Actualiza los valores del listbox desde la fuente de datos."""
