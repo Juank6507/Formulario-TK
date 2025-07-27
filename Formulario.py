@@ -2568,6 +2568,12 @@ class Textbox(tk.Frame):
         else:
             print("[DEBUG][Textbox] No hay buscador asociado a este textbox.")
 
+    def set(self, valor):
+        self.textbox.delete("1.0", tk.END)
+        self.textbox.insert("1.0", valor)
+        if hasattr(self, 'buscador'):
+            self.buscador.reset_buffer(self.textbox, valor)
+
 class OptionGroup(tk.Frame):
     """
     Control OptionGroup unificado que combina las mejores características de OptionGroup.
@@ -3000,7 +3006,8 @@ class Combobox(tk.Frame):
     def set(self, valor):
         """Establece el valor del combobox."""
         self.combobox.set(valor)
-        self.buscador.reset_buffer(self.combobox, valor)  # <-- Esto sincroniza el buffer
+        if hasattr(self, 'buscador'):
+            self.buscador.reset_buffer(self.combobox, valor)
     
     def busca_cadena(self, texto, modo_busqueda=None, sensible_mayusculas=None, max_resultados=None):
         """Delega la búsqueda al BuscadorCadena si existe."""
@@ -3125,6 +3132,19 @@ class Listbox(tk.Frame):
     def get_widget(self):
         """Devuelve el widget interno (ttk.Entry)."""
         return self.entry_busqueda
+
+    def set(self, valor):
+        # Buscar el índice del valor en el listbox
+        items = self.listbox.get(0, tk.END)
+        try:
+            idx = items.index(valor)
+            self.listbox.selection_clear(0, tk.END)
+            self.listbox.selection_set(idx)
+            self.listbox.see(idx)
+            if hasattr(self, 'buscador'):
+                self.buscador.reset_buffer(self.entry_busqueda, valor)
+        except ValueError:
+            pass
 
 class Page(ttk.Frame):  # Cambiado de tk.Frame a ttk.Frame
     """
