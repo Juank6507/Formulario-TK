@@ -944,19 +944,12 @@ class BuscadorCadena:
             widget.selection_range(idx, final_pos)
             widget.icursor(final_pos)
         elif tipo_widget == "listbox":
-            # Si se pasa entry_busqueda, autocompleta el Entry con la mejor coincidencia
-            if entry_busqueda is not None:
-                sugerencia = coincidencias[0][0] if coincidencias else texto_usuario
-                entry_busqueda.delete(0, "end")
-                entry_busqueda.insert(0, sugerencia)
-                entry_busqueda.selection_range(len(texto_usuario), "end")
-                entry_busqueda.icursor("end")
+            # Para listbox, el widget es el Entry de búsqueda
             widget.delete(0, "end")
-            for valor, _ in coincidencias:
-                widget.insert("end", valor)
-            if coincidencias:
-                widget.selection_set(0)
-                widget.activate(0)
+            widget.insert(0, texto_sugerido)
+            widget.selection_range(idx, final_pos)
+            widget.icursor(final_pos)
+            # El Listbox se actualiza desde el método _evento_keyrelease_busqueda de la clase Listbox
 
     def on_keypress(self, widget, event, tipo_widget="text"):
         """
@@ -1000,13 +993,12 @@ class BuscadorCadena:
                 widget.selection_clear()
                 widget.icursor(len(texto_final))
             elif tipo_widget == "listbox":
-                # Para listbox, podrías seleccionar el primer elemento coincidente
-                widget.selection_clear(0, "end")
-                for i in range(widget.size()):
-                    if widget.get(i) == texto_final:
-                        widget.selection_set(i)
-                        widget.activate(i)
-                        break
+                # Para listbox, el widget es el Entry de búsqueda
+                widget.delete(0, "end")
+                widget.insert(0, texto_final)
+                widget.selection_clear()
+                widget.icursor(len(texto_final))
+                # Aquí podrías buscar el Listbox asociado si es necesario
             self.buffers[widget] = texto_final
             widget.tk_focusNext().focus_set()
             return "break"
@@ -2971,6 +2963,7 @@ class Combobox(tk.Frame):
             
         if hasattr(self, 'buscador'):
             self.combobox.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.combobox, e, "combobox"))
+            self.combobox.bind("<KeyRelease>", self._evento_keyrelease_usuario)
     
     def _actualizar_valores(self, valores):
         """Actualiza los valores del combobox."""
@@ -3093,7 +3086,8 @@ class Listbox(tk.Frame):
                 df_columna_id=getattr(config, "df_columna_id", None),
                 df_columna_valor=getattr(config, "df_columna_valor", None)
             )            
-            self.entry_busqueda.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.listbox, e, "listbox"))
+            self.entry_busqueda.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.entry_busqueda, e, "listbox"))
+            self.entry_busqueda.bind("<KeyRelease>", self._evento_keyrelease_busqueda)
     
     def _actualizar_valores_desde_fuente(self, fuente_datos):
         """Actualiza los valores del listbox desde la fuente de datos."""
@@ -3123,7 +3117,14 @@ class Listbox(tk.Frame):
     def _evento_keyrelease_busqueda(self, event):
         if hasattr(self, 'buscador'):
             texto_usuario = self.entry_busqueda.get()
-            self.buscador.autocompletar_en_widget(self.listbox, texto_usuario, tipo_widget="listbox", entry_busqueda=self.entry_busqueda)
+            # Actualizar el Listbox con las coincidencias
+            coincidencias = self.buscador.busca_cadena(texto_usuario)
+            self.listbox.delete(0, tk.END)
+            for valor, _ in coincidencias:
+                self.listbox.insert(tk.END, valor)
+            if coincidencias:
+                self.listbox.selection_set(0)
+                self.listbox.activate(0)
     
     def get_selected(self):
         """Obtiene el valor seleccionado en el listbox."""
