@@ -3085,7 +3085,7 @@ class Listbox(tk.Frame):
                 df_columna_id=getattr(config, "df_columna_id", None),
                 df_columna_valor=getattr(config, "df_columna_valor", None)
             )            
-            self.entry_busqueda.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.entry_busqueda, e, "listbox"))
+            self.entry_busqueda.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.listbox, e, "listbox"))
     
     def _actualizar_valores_desde_fuente(self, fuente_datos):
         """Actualiza los valores del listbox desde la fuente de datos."""
