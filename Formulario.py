@@ -3,15 +3,16 @@
 
 # Importando módulos python
 import os
+import sys
+import functools
+from json import JSONDecodeError
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union, Callable
 from datetime import datetime, time, date
 import logging
-import unicodedata
 import re
-from collections import Counter
 import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -368,6 +369,93 @@ class Formulario:
                 "Hubo un problema al enviar los datos. Por favor, inténtelo de nuevo.",
                 tipo="error"
             )
+
+class Seguimiento:
+    """
+    Sistema de seguimiento transparente por líneas de método
+    Lee debug_config.json y activa seguimiento automáticamente
+    """
+    
+    _config = None
+    
+    @classmethod
+    def _cargar_config(cls):
+        """Carga configuración desde JSON"""
+        if cls._config is None:
+            try:
+                with open('debug_config.json', 'r', encoding='utf-8') as f:
+                    cls._config = json.load(f)
+                return True
+            except (FileNotFoundError, json.JSONDecodeError):
+                cls._config = {"salida": "consola"}
+                return False
+        return bool(cls._config.get("metodos"))
+    
+    @classmethod
+    def activar(cls):
+        """Activa seguimiento transparente con functools"""
+        if not cls._cargar_config():
+            return
+            
+        for clase_metodo, lineas_config in cls._config.get("metodos", {}).items():
+            try:
+                clase, metodo = clase_metodo.rsplit('.', 1)
+                cls._envolver_metodo(clase, metodo, lineas_config)
+            except:
+                pass
+    
+    @classmethod
+    def _envolver_metodo(cls, clase_nombre, metodo_nombre, lineas_config):
+        """Envuelve método con functools y seguimiento"""
+        # Buscar clase en el módulo actual
+        clase = globals().get(clase_nombre)
+        if not clase or not hasattr(clase, metodo_nombre):
+            return
+            
+        metodo_original = getattr(clase, metodo_nombre)
+        
+        @functools.wraps(metodo_original)
+        def metodo_envuelto(self, *args, **kwargs):
+            lineas_config = {int(k): v for k, v in lineas_config.items()}
+            
+            def trace_func(frame, event, arg):
+                if event == 'line':
+                    linea_metodo = frame.f_lineno - metodo_original.__code__.co_firstlineno + 1
+                    
+                    if linea_metodo in lineas_config:
+                        vars_seguir = lineas_config[linea_metodo]
+                        valores = {}
+                        
+                        # Variables locales disponibles
+                        locals_dict = frame.f_locals
+                        locals_dict['self'] = self
+                        
+                        for var_expr in vars_seguir:
+                            try:
+                                valores[var_expr] = str(eval(var_expr, frame.f_globals, locals_dict))
+                            except:
+                                valores[var_expr] = f"<{var_expr}>"
+                        
+                        mensaje = f"[{clase_nombre}.{metodo_nombre}:L{linea_metodo}] " + \
+                                 " | ".join(f"{k}={v}" for k, v in valores.items())
+                        
+                        if cls._config.get("salida") == "consola":
+                            print(mensaje)
+                        elif cls._config.get("salida") == "pantalla":
+                            messagebox.showinfo("Seguimiento", mensaje)
+                
+                return trace_func
+            
+            sys.settrace(trace_func)
+            try:
+                return metodo_original(self, *args, **kwargs)
+            finally:
+                sys.settrace(None)
+        
+        setattr(clase, metodo_nombre, metodo_envuelto)
+
+# Activar al importar
+Seguimiento.activar()
 
 class MessageBox:
     """Clase para mostrar diferentes tipos de mensajes en ventanas emergentes."""
@@ -943,12 +1031,12 @@ class BuscadorCadena:
             widget.selection_range(idx, final_pos)
             widget.icursor(final_pos)
         elif tipo_widget == "listbox":
+            # Para listbox, el widget es el Entry de búsqueda
             widget.delete(0, "end")
-            for valor, _ in coincidencias:
-                widget.insert("end", valor)
-            if coincidencias:
-                widget.selection_set(0)
-                widget.activate(0)
+            widget.insert(0, texto_sugerido)
+            widget.selection_range(idx, final_pos)
+            widget.icursor(final_pos)
+            # El Listbox se actualiza desde el método _evento_keyrelease_busqueda de la clase Listbox
 
     def on_keypress(self, widget, event, tipo_widget="text"):
         """
@@ -986,19 +1074,19 @@ class BuscadorCadena:
                 widget.insert("1.0", texto_final)
                 widget.tag_remove("sel", "1.0", "end")
                 widget.mark_set("insert", f"1.{len(texto_final)}")
+            
             elif tipo_widget == "combobox":
                 widget.delete(0, "end")
                 widget.insert(0, texto_final)
                 widget.selection_clear()
                 widget.icursor(len(texto_final))
-            elif tipo_widget == "listbox":
-                # Para listbox, podrías seleccionar el primer elemento coincidente
-                widget.selection_clear(0, "end")
-                for i in range(widget.size()):
-                    if widget.get(i) == texto_final:
-                        widget.selection_set(i)
-                        widget.activate(i)
-                        break
+                
+            elif tipo_widget == "entry":
+                # Para entry de búsqueda (como en Listbox)
+                widget.delete(0, "end")
+                widget.insert(0, texto_final)
+                widget.selection_clear()
+                widget.icursor(len(texto_final))
             self.buffers[widget] = texto_final
             widget.tk_focusNext().focus_set()
             return "break"
@@ -1017,7 +1105,6 @@ class BuscadorCadena:
         """
         self.buffers[widget] = valor
 
-    # Métodos auxiliares para DataFrame (sin cambios)
     def _es_dataframe(self, obj):
         """
         Determina si el objeto proporcionado es un DataFrame de pandas.
@@ -1198,18 +1285,13 @@ class Textbox(tk.Frame):
 
     def busca_cadena(self, texto, modo_busqueda=None, sensible_mayusculas=None, max_resultados=None):
         """Delega la búsqueda al BuscadorCadena si existe."""
-        
-        print(f"[DEBUG] BuscadorCadena.busca_cadena llamado con: '{texto}', modo: {modo_busqueda or self.modo_busqueda}")
-        
+                
         if hasattr(self, 'buscador'):
             return self.buscador.busca_cadena(texto, modo_busqueda, sensible_mayusculas, max_resultados)
         
-        print(f"[DEBUG] Resultados encontrados: {self.buscador}")
         return []
 
     def _evento_keypress_usuario(self, event):
-        # Debug general para todos los eventos
-        print(f"[DEBUG][KeyPress] keysym: {event.keysym}, char: '{event.char}', tecla_muerta: {self._tecla_muerta}")
 
         if event.keysym in ("Return", "Tab"):
             # Usa el texto sugerido actual si existe, si no, el buffer del usuario
@@ -1230,7 +1312,6 @@ class Textbox(tk.Frame):
         # Manejo de teclas muertas (acentos)
         if event.char == '' and (event.keysym.startswith('dead_') or event.keysym == 'Multi_key'):
             self._tecla_muerta = event.keysym
-            print(f"[DEBUG][TeclaMuerta] Detectada tecla muerta: {self._tecla_muerta}")
             return "break"
 
         if event.keysym == "BackSpace":
@@ -1255,7 +1336,6 @@ class Textbox(tk.Frame):
             }
             combinacion = (self._tecla_muerta, event.char)
             resultado = acentos.get(combinacion)
-            print(f"[DEBUG][TeclaMuerta] muerta: {self._tecla_muerta}, char: '{event.char}', resultado: '{resultado}'")
             if resultado:
                 self.buffer_usuario += resultado
             elif event.char:
@@ -1327,7 +1407,6 @@ class Textbox(tk.Frame):
         Maneja el evento de actualización de contenido cuando se presiona una tecla.
         Actualiza el texto ingresado y aplica el formato correspondiente.
         """
-        print(f"[DEBUG] Tecla presionada: {event.keysym} - Texto actual: '{self.textbox.get('1.0', 'end-1c')}'")
               
         keysym = getattr(event, 'keysym', None)
         if keysym in ("Return", "Tab"):
@@ -2559,14 +2638,11 @@ class Textbox(tk.Frame):
         valor = self.texto_ingresado if hasattr(self, "texto_ingresado") else ""
         return f"Textbox(titulo='{titulo}', tipo_validacion='{self.tipo_validacion}', valor='{valor}')"
 
-    def _debug_evento_buscador(self, event):
-        texto = self.textbox.get("1.0", "end-1c").strip()
-        print(f"[DEBUG][Textbox] KeyRelease: '{event.keysym}' | Texto actual: '{texto}'")
-        if hasattr(self, "buscador"):
-            resultados = self.buscador.busca_cadena(texto)
-            print(f"[DEBUG][Textbox] Resultados busca_cadena('{texto}'): {resultados}")
-        else:
-            print("[DEBUG][Textbox] No hay buscador asociado a este textbox.")
+    def set(self, valor):
+        self.textbox.delete("1.0", tk.END)
+        self.textbox.insert("1.0", valor)
+        if hasattr(self, 'buscador'):
+            self.buscador.reset_buffer(self.textbox, valor)
 
 class OptionGroup(tk.Frame):
     """
@@ -3000,8 +3076,9 @@ class Combobox(tk.Frame):
     def set(self, valor):
         """Establece el valor del combobox."""
         self.combobox.set(valor)
-        self.buscador.reset_buffer(self.combobox, valor)  # <-- Esto sincroniza el buffer
-    
+        if hasattr(self, 'buscador'):
+            self.buscador.reset_buffer(self.combobox, valor)
+  
     def busca_cadena(self, texto, modo_busqueda=None, sensible_mayusculas=None, max_resultados=None):
         """Delega la búsqueda al BuscadorCadena si existe."""
         if hasattr(self, 'buscador'):
@@ -3078,8 +3155,8 @@ class Listbox(tk.Frame):
                 df_columna_id=getattr(config, "df_columna_id", None),
                 df_columna_valor=getattr(config, "df_columna_valor", None)
             )            
-            self.entry_busqueda.bind("<KeyPress>", lambda e: self.buscador.on_keypress(self.entry_busqueda, e, "listbox"))
-    
+            self.entry_busqueda.bind("<KeyRelease>", self._actualizar_busqueda)                            
+
     def _actualizar_valores_desde_fuente(self, fuente_datos):
         """Actualiza los valores del listbox desde la fuente de datos."""
         self.listbox.delete(0, tk.END)
@@ -3105,11 +3182,39 @@ class Listbox(tk.Frame):
             return self.buscador.busca_cadena(texto, modo_busqueda, sensible_mayusculas, max_resultados)
         return [] 
 
-    def _evento_keyrelease_busqueda(self, event):
+    def _actualizar_busqueda(self, event):
+        """Actualiza la búsqueda en tiempo real con autocompletado"""
+        texto = self.entry_busqueda.get()
+        
         if hasattr(self, 'buscador'):
-            texto_usuario = self.entry_busqueda.get()
-            self.buscador.autocompletar_en_widget(self.listbox, texto_usuario, tipo_widget="listbox")
-    
+            # 1. Buscar coincidencias
+            coincidencias = self.buscador.busca_cadena(texto)
+            
+            # 2. Actualizar Listbox con resultados
+            self._actualizar_lista(coincidencias)
+            
+            # 3. Autocompletar el campo de búsqueda
+            if coincidencias and texto:
+                self.buscador.autocompletar_en_widget(
+                    self.entry_busqueda, 
+                    texto, 
+                    "entry"
+                ) 
+  
+    def _actualizar_lista(self, coincidencias):
+        """Actualiza el Listbox con las coincidencias encontradas"""
+        # Limpiar lista existente
+        self.listbox.delete(0, tk.END)
+        
+        # Agregar nuevas coincidencias
+        for valor, _ in coincidencias:
+            self.listbox.insert(tk.END, valor)
+        
+        # Seleccionar primer elemento si hay resultados
+        if coincidencias:
+            self.listbox.selection_set(0)
+            self.listbox.activate(0)  
+        
     def get_selected(self):
         """Obtiene el valor seleccionado en el listbox."""
         seleccion = self.listbox.curselection()
@@ -3125,6 +3230,12 @@ class Listbox(tk.Frame):
     def get_widget(self):
         """Devuelve el widget interno (ttk.Entry)."""
         return self.entry_busqueda
+
+    def set(self, valor):
+        self.entry_busqueda.delete(0, tk.END)
+        self.entry_busqueda.insert(0, valor)
+        if hasattr(self, 'buscador'):
+            self.buscador.reset_buffer(self.entry_busqueda, valor)
 
 class Page(ttk.Frame):  # Cambiado de tk.Frame a ttk.Frame
     """
@@ -3562,6 +3673,7 @@ class SelectorHora(tk.Frame):
         
         # Configurar validación y eventos
         self.hora_spinbox.bind("<FocusOut>", self._validar_hora)
+    
     def _validar_hora(self, event=None):
         """
         Valida que la hora esté en el rango correcto.
@@ -3871,4 +3983,5 @@ class Deslizante(tk.Frame):
         """
         self.deslizante.configure(state="normal" if estado else "disabled")
         self.habilitado = estado
+                              
                               
