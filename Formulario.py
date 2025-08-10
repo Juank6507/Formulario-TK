@@ -5,6 +5,9 @@
 import os
 import sys
 import functools
+from json import JSONDecodeError
+import sys
+import functools
 import json
 import inspect
 import tkinter as tk
@@ -13,9 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union, Callable
 from datetime import datetime, time, date
 import logging
-import unicodedata
 import re
-from collections import Counter
 import pandas as pd
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -3986,4 +3987,5 @@ class Deslizante(tk.Frame):
         """
         self.deslizante.configure(state="normal" if estado else "disabled")
         self.habilitado = estado
+                              
                               
