@@ -3989,3 +3989,4 @@ class Deslizante(tk.Frame):
         self.habilitado = estado
                               
                               
+
